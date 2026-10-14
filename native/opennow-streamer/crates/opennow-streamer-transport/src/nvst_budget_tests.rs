@@ -235,7 +235,7 @@ fn sony_review_runtime(incarnation: u64, server_mask: u32) -> (HidRuntime, HidSe
     let claim = opennow_streamer_hid::SdlDeviceClaim::new(0, incarnation, 0x054c, 0x05c4).unwrap();
     runtime.replace_inventory(&[Some(claim)]);
     runtime.open_endpoint();
-    assert!(runtime.bind_session(1).is_some());
+    assert!(runtime.bind_current_session().is_some());
     (
         runtime,
         HidSession::new(SonyCapability {

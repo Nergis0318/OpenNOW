@@ -225,6 +225,13 @@ impl HidRuntime {
         Some(SessionBinding { generation })
     }
 
+    /// Binds the streaming session to the currently open endpoint. The endpoint token doubles as
+    /// the generation so a stale transport cannot unbind a newer session.
+    pub fn bind_current_session(&self) -> Option<SessionBinding> {
+        let endpoint = self.lock().endpoint;
+        self.bind_session(endpoint?)
+    }
+
     pub fn unbind_session(&self, generation: u64) {
         let mut state = self.lock();
         if state.binding.is_some_and(|bound| bound != generation) {
@@ -646,6 +653,19 @@ mod tests {
             runtime.submit_snapshot(snapshot(0, 1)),
             SnapshotAdmission::Unbound
         );
+    }
+
+    #[test]
+    fn binding_the_current_session_uses_the_open_endpoint_as_its_generation() {
+        let runtime = HidRuntime::new();
+        assert!(runtime.bind_current_session().is_none());
+        assert_eq!(runtime.session_generation(), None);
+        let token = runtime.open_endpoint();
+        let binding = runtime.bind_current_session().unwrap();
+        assert_eq!(runtime.session_generation(), Some(binding.generation));
+        assert_ne!(binding.generation, 0);
+        runtime.close_endpoint(token);
+        assert_eq!(runtime.session_generation(), None);
     }
 
     #[test]

@@ -1460,7 +1460,9 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id: 
         "bitDepth":bit_depth,
         "cloudGsync":cloud_gsync,
         "enabledL4S":setting_bool(settings, "enableL4S", false),
-        "supportedHidDevices":0,
+        // Rich Sony HID classes the native chain can synthesize on the host.
+        // Matches the mask SonyCapability reads back from `ri.hidDeviceMask`.
+        "supportedHidDevices":5,
         "profile":0,
         "fallbackToLogicalResolution":false,
         "chromaFormat":chroma,
@@ -4172,6 +4174,28 @@ mod tests {
             .unwrap();
         assert_eq!(prepared["context"]["settings"]["colorQuality"], "10bit_444");
         assert_eq!(prepared["context"]["settings"]["enableHdr"], true);
+    }
+
+    #[test]
+    fn create_body_advertises_the_rich_sony_hid_classes() {
+        let capabilities = json!({"protocolVersion":7,"nativeHdrSupported":true,"videoBackends":[{
+            "backend":"d3d11","available":true,"codecs":[
+                {"codec":"h265","available":true,"colorQualities":["8bit_420","10bit_420"]}
+            ]
+        }]});
+        let settings = crate::streamer::StreamerService::embedded_session_settings(
+            &json!({}),
+            &capabilities,
+        )
+        .unwrap();
+        let body = build_create_body("123", &json!({}), &settings, "device");
+        let request = &body["sessionRequestData"];
+        assert_eq!(
+            request["requestedStreamingFeatures"]["supportedHidDevices"], 5,
+            "the Sony HID chain needs the server to grant the rich device mask"
+        );
+        assert!(request["requestedStreamingFeatures"]["hidDevices"].is_null());
+        assert_eq!(request["remoteControllersBitmap"], 0);
     }
 
     #[test]

@@ -5742,10 +5742,12 @@ fn spawn_receiver_thread(
     )));
     let worker_microphone = microphone.clone();
     let transport_origin = Instant::now();
-    let endpoint = setup
-        .hid_runtime
-        .as_ref()
-        .map(|runtime| (Arc::clone(runtime), runtime.open_endpoint()));
+    let endpoint = setup.hid_runtime.as_ref().map(|runtime| {
+        let token = runtime.open_endpoint();
+        // pump_hid_pending stays inert until a session is bound to the endpoint.
+        runtime.bind_current_session();
+        (Arc::clone(runtime), token)
+    });
     let worker_endpoint = endpoint.clone();
     let join = thread::Builder::new()
         .name(name.to_owned())
