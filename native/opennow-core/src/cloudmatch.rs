@@ -4183,11 +4183,9 @@ mod tests {
                 {"codec":"h265","available":true,"colorQualities":["8bit_420","10bit_420"]}
             ]
         }]});
-        let settings = crate::streamer::StreamerService::embedded_session_settings(
-            &json!({}),
-            &capabilities,
-        )
-        .unwrap();
+        let settings =
+            crate::streamer::StreamerService::embedded_session_settings(&json!({}), &capabilities)
+                .unwrap();
         let body = build_create_body("123", &json!({}), &settings, "device");
         let request = &body["sessionRequestData"];
         assert_eq!(
