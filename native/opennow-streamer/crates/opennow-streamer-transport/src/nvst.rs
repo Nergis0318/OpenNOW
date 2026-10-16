@@ -6188,7 +6188,11 @@ const SONY_SHUTDOWN_FLUSH_BUDGET: Duration = Duration::from_millis(50);
 fn queue_hid_shutdown(hid_session: &mut HidSession, channels: NvstInputChannels, rtc: &mut Rtc) {
     for outbound in hid_session.retire_all() {
         let command = match outbound {
-            HidOutbound::Release { low_id, bytes } => sony_report_command(low_id, &bytes),
+            HidOutbound::Release {
+                low_id,
+                interface,
+                bytes,
+            } => sony_report_command(low_id, interface, &bytes),
             HidOutbound::Removal { low_id } => {
                 sony_device_change_command(SonyDeviceControl::Removal, low_id)
             }
@@ -6226,8 +6230,12 @@ fn pump_hid_pending(
     let mut attaches = Vec::new();
     for item in hid_session.reconcile(&inventory) {
         match item {
-            HidOutbound::Release { low_id, bytes } => {
-                if let Some(command) = sony_report_command(low_id, &bytes)
+            HidOutbound::Release {
+                low_id,
+                interface,
+                bytes,
+            } => {
+                if let Some(command) = sony_report_command(low_id, interface, &bytes)
                     && !channels.send_control_teardown(rtc, &command)
                 {
                     return false;
@@ -6273,8 +6281,8 @@ fn pump_hid_pending(
     for item in hid_runtime.drain(DRAIN_PER_ITERATION) {
         let (slot, faulted, observed_at_us) = match item {
             IngressItem::Snapshot(snapshot) => {
-                if let Some((low_id, bytes)) = hid_session.build_report(&snapshot)
-                    && let Some(command) = sony_report_command(low_id, &bytes)
+                if let Some((low_id, interface, bytes)) = hid_session.build_report(&snapshot)
+                    && let Some(command) = sony_report_command(low_id, interface, &bytes)
                     && !channels.send_control(rtc, &command)
                 {
                     published = false;
@@ -6293,8 +6301,8 @@ fn pump_hid_pending(
             } => (slot, true, observed_at_us),
         };
         hid_session.observe_slot(slot, observed_at_us);
-        if let Some((low_id, bytes)) = hid_session.release_snapshot(slot)
-            && let Some(command) = sony_report_command(low_id, &bytes)
+        if let Some((low_id, interface, bytes)) = hid_session.release_snapshot(slot)
+            && let Some(command) = sony_report_command(low_id, interface, &bytes)
             && !channels.send_control_teardown(rtc, &command)
         {
             published = false;
@@ -7348,7 +7356,11 @@ fn run_nvst_webrtc_bundle(
         if let (Some(hid_session), Some(channels)) = (hid_session.as_mut(), input_channels) {
             for outbound in hid_session.retire_all() {
                 let command = match outbound {
-                    HidOutbound::Release { low_id, bytes } => sony_report_command(low_id, &bytes),
+                    HidOutbound::Release {
+                        low_id,
+                        interface,
+                        bytes,
+                    } => sony_report_command(low_id, interface, &bytes),
                     HidOutbound::Removal { low_id } => {
                         sony_device_change_command(SonyDeviceControl::Removal, low_id)
                     }

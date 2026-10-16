@@ -1,6 +1,7 @@
 use std::fmt;
 
 pub mod ds4;
+pub mod ds5;
 pub mod runtime;
 pub mod session;
 
@@ -24,6 +25,7 @@ pub const MAX_EXACT_INCARNATION: u64 = 9_007_199_254_740_991;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SonyTarget {
     Ds4,
+    Ds5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +35,8 @@ pub struct SonyCapability {
     pub ds4_source_allowed: bool,
     pub dualsense_source_allowed: bool,
     pub cross_synthesize_ds5_to_ds4: bool,
+    /// Emit the DualSense target for DualSense sources instead of cross-synthesising a DS4.
+    pub ds5_target_allowed: bool,
 }
 
 impl Default for SonyCapability {
@@ -43,6 +47,7 @@ impl Default for SonyCapability {
             ds4_source_allowed: true,
             dualsense_source_allowed: true,
             cross_synthesize_ds5_to_ds4: true,
+            ds5_target_allowed: true,
         }
     }
 }
@@ -59,14 +64,24 @@ impl SonyCapability {
         self.server_mask & Self::SERVER_GAME_PERMISSION_BIT != 0
     }
 
-    pub fn admits(self, target: SonyTarget, cross_synthesis: bool) -> bool {
+    /// The device class actually synthesized for `source`. A DualSense falls back to the proved
+    /// DS4 target unless the DS5 target is enabled.
+    pub fn resolve(self, source: SonyTarget) -> SonyTarget {
+        match source {
+            SonyTarget::Ds5 if self.ds5_target_allowed => SonyTarget::Ds5,
+            _ => SonyTarget::Ds4,
+        }
+    }
+
+    pub fn admits(self, source: SonyTarget) -> bool {
         self.synthesized_ds4_support
             && self.server_supports_ds4()
             && self.game_allows_ds4()
-            && match (target, cross_synthesis) {
-                (SonyTarget::Ds4, false) => self.ds4_source_allowed,
-                (SonyTarget::Ds4, true) => {
-                    self.dualsense_source_allowed && self.cross_synthesize_ds5_to_ds4
+            && match source {
+                SonyTarget::Ds4 => self.ds4_source_allowed,
+                SonyTarget::Ds5 => {
+                    self.dualsense_source_allowed
+                        && (self.ds5_target_allowed || self.cross_synthesize_ds5_to_ds4)
                 }
             }
     }
@@ -96,15 +111,15 @@ impl SdlDeviceClaim {
         })
     }
 
-    pub fn sony_product(self) -> Option<(SonyTarget, bool)> {
+    pub fn sony_product(self) -> Option<SonyTarget> {
         if self.vendor != SONY_VENDOR {
             return None;
         }
         if SONY_DS4_PRODUCTS.contains(&self.product) {
-            return Some((SonyTarget::Ds4, false));
+            return Some(SonyTarget::Ds4);
         }
         if SONY_DS5_PRODUCTS.contains(&self.product) {
-            return Some((SonyTarget::Ds4, true));
+            return Some(SonyTarget::Ds5);
         }
         None
     }
@@ -301,11 +316,11 @@ mod tests {
     #[test]
     fn sony_product_classifies_ds4_and_ds5_only_for_the_sony_vendor() {
         let ds4 = SdlDeviceClaim::new(0, 1, SONY_VENDOR, 0x09cc).unwrap();
-        assert_eq!(ds4.sony_product(), Some((SonyTarget::Ds4, false)));
+        assert_eq!(ds4.sony_product(), Some(SonyTarget::Ds4));
         let ds5 = SdlDeviceClaim::new(0, 1, SONY_VENDOR, 0x0ce6).unwrap();
-        assert_eq!(ds5.sony_product(), Some((SonyTarget::Ds4, true)));
+        assert_eq!(ds5.sony_product(), Some(SonyTarget::Ds5));
         let edge = SdlDeviceClaim::new(0, 1, SONY_VENDOR, 0x0df2).unwrap();
-        assert_eq!(edge.sony_product(), Some((SonyTarget::Ds4, true)));
+        assert_eq!(edge.sony_product(), Some(SonyTarget::Ds5));
         let other = SdlDeviceClaim::new(0, 1, SONY_VENDOR, 0x0eee).unwrap();
         assert_eq!(other.sony_product(), None);
         let clone = SdlDeviceClaim::new(0, 1, 0x045e, 0x0ce6).unwrap();

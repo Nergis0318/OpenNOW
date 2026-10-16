@@ -29,10 +29,12 @@ pub enum HidOutbound {
     },
     Report {
         low_id: u8,
+        interface: u8,
         bytes: Box<[u8; crate::ds4::DS4_REPORT_BYTES]>,
     },
     Release {
         low_id: u8,
+        interface: u8,
         bytes: Box<[u8; crate::ds4::DS4_REPORT_BYTES]>,
     },
     Removal {
@@ -46,6 +48,7 @@ struct AdmittedSource {
     incarnation: u64,
     vendor: u16,
     product: u16,
+    target: crate::SonyTarget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,10 +132,10 @@ impl HidSession {
             return HidAttachment::Refused;
         }
         let index = usize::from(claim.slot);
-        let Some((target, cross_synthesis)) = claim.sony_product() else {
+        let Some(source) = claim.sony_product() else {
             return HidAttachment::Refused;
         };
-        if !self.capability.admits(target, cross_synthesis) {
+        if !self.capability.admits(source) {
             return HidAttachment::Refused;
         }
         let Some(low_id) = low_id_for_slot(claim.slot) else {
@@ -146,6 +149,7 @@ impl HidSession {
             incarnation: claim.incarnation,
             vendor: claim.vendor,
             product: claim.product,
+            target: self.capability.resolve(source),
         });
         self.report_states[index] = Ds4ReportState::default();
         outbound.push(HidOutbound::Attach { low_id });
@@ -166,10 +170,11 @@ impl HidSession {
         self.sources[index] = None;
         self.tombstones[index] = Some(source.incarnation);
         if let Some(low_id) = low_id_for_slot(slot) {
-            let bytes = self.release_report(slot);
+            let bytes = self.release_report(slot, source.target);
             self.report_states[index] = Ds4ReportState::default();
             outbound.push(HidOutbound::Release {
                 low_id,
+                interface: Self::interface(source.target),
                 bytes: Box::new(bytes),
             });
             outbound.push(HidOutbound::Removal { low_id });
@@ -178,7 +183,11 @@ impl HidSession {
         }
     }
 
-    fn release_report(&mut self, slot: u8) -> [u8; crate::ds4::DS4_REPORT_BYTES] {
+    fn release_report(
+        &mut self,
+        slot: u8,
+        target: crate::SonyTarget,
+    ) -> [u8; crate::ds4::DS4_REPORT_BYTES] {
         let state = &mut self.report_states[usize::from(slot)];
         let mut release = SonySnapshot::neutral(slot, 1, state.last_observed_at_us());
         let previous = *state.contacts();
@@ -187,7 +196,25 @@ impl HidSession {
             x: contact.x,
             y: contact.y,
         });
-        state.build(&release)
+        Self::encode(state, target, &release)
+    }
+
+    fn encode(
+        state: &mut Ds4ReportState,
+        target: crate::SonyTarget,
+        snapshot: &SonySnapshot,
+    ) -> [u8; crate::ds4::DS4_REPORT_BYTES] {
+        match target {
+            crate::SonyTarget::Ds5 => state.build_ds5(snapshot),
+            crate::SonyTarget::Ds4 => state.build(snapshot),
+        }
+    }
+
+    fn interface(target: crate::SonyTarget) -> u8 {
+        match target {
+            crate::SonyTarget::Ds5 => crate::ds5::DS5_INTERFACE,
+            crate::SonyTarget::Ds4 => crate::ds4::DS4_INTERFACE,
+        }
     }
 
     pub fn observe_slot(&mut self, slot: u8, observed_at_us: u64) {
@@ -207,24 +234,26 @@ impl HidSession {
     pub fn build_report(
         &mut self,
         snapshot: &SonySnapshot,
-    ) -> Option<(u8, [u8; crate::ds4::DS4_REPORT_BYTES])> {
+    ) -> Option<(u8, u8, [u8; crate::ds4::DS4_REPORT_BYTES])> {
         let index = usize::from(snapshot.slot);
         let source = self.sources.get(index).copied().flatten()?;
         if source.incarnation != snapshot.incarnation {
             return None;
         }
         let low_id = low_id_for_slot(snapshot.slot)?;
-        Some((low_id, self.report_states[index].build(snapshot)))
+        let bytes = Self::encode(&mut self.report_states[index], source.target, snapshot);
+        Some((low_id, Self::interface(source.target), bytes))
     }
 
     pub fn release_snapshot(
         &mut self,
         slot: u8,
-    ) -> Option<(u8, [u8; crate::ds4::DS4_REPORT_BYTES])> {
+    ) -> Option<(u8, u8, [u8; crate::ds4::DS4_REPORT_BYTES])> {
         let index = usize::from(slot);
-        self.sources.get(index).copied().flatten()?;
+        let source = self.sources.get(index).copied().flatten()?;
         let low_id = low_id_for_slot(slot)?;
-        Some((low_id, self.release_report(slot)))
+        let bytes = self.release_report(slot, source.target);
+        Some((low_id, Self::interface(source.target), bytes))
     }
 
     pub fn take_output(&self, payload: &[u8], low_id: u8) -> Option<SonyRumble> {
@@ -353,6 +382,7 @@ mod tests {
             ..SonyCapability::default()
         };
         capability.cross_synthesize_ds5_to_ds4 = false;
+        capability.ds5_target_allowed = false;
         let mut session = HidSession::new(capability);
         assert_eq!(
             session.adopt(ds5(0, 1).unwrap()).unwrap(),
@@ -410,7 +440,7 @@ mod tests {
         assert_eq!(session.attached(2), Some(77));
         assert!(session.build_report(&snapshot(2, 78)).is_none());
         assert_eq!(
-            session.build_report(&snapshot(2, 77)).map(|(id, _)| id),
+            session.build_report(&snapshot(2, 77)).map(|(id, _, _)| id),
             Some(8)
         );
         assert!(session.build_report(&snapshot(1, 77)).is_none());
@@ -499,7 +529,7 @@ mod tests {
             x: 0,
             y: 0,
         };
-        let (low_id, report) = session.build_report(&state).unwrap();
+        let (low_id, _, report) = session.build_report(&state).unwrap();
         assert_eq!(low_id, 9);
         assert_eq!(report.len(), 64);
         assert_eq!(report[35], 0x01);
@@ -587,7 +617,7 @@ mod tests {
             y: 32767,
         };
         let _ = session.build_report(&state);
-        let (_, release) = session.release_snapshot(0).unwrap();
+        let (_, _, release) = session.release_snapshot(0).unwrap();
         assert_eq!(release[35], 0x81);
         assert_eq!(&release[35..39], &[0x81, 0x7f, 0xe7, 0x3a]);
         assert_eq!(&release[1..5], &[128, 128, 128, 128]);
@@ -601,8 +631,8 @@ mod tests {
         state.observed_at_us = 1_000_000;
         state.buttons = 0x1000;
         state.contacts[0].active = true;
-        let (_, prior) = session.build_report(&state).unwrap();
-        let (_, release) = session.release_snapshot(0).unwrap();
+        let (_, _, prior) = session.build_report(&state).unwrap();
+        let (_, _, release) = session.release_snapshot(0).unwrap();
         assert_ne!(&prior[10..12], &[0, 0]);
         assert_eq!(
             &release[10..12],
@@ -630,7 +660,7 @@ mod tests {
         };
         let _ = session.build_report(&state);
         let outbound = session.retire(1);
-        let HidOutbound::Release { low_id, bytes } = &outbound[0] else {
+        let HidOutbound::Release { low_id, bytes, .. } = &outbound[0] else {
             panic!("retirement must release before removal");
         };
         assert_eq!(*low_id, 7);
@@ -664,10 +694,18 @@ mod tests {
     }
 
     #[test]
-    fn target_selection_stays_ds4_for_every_admitted_sony_source() {
+    fn dualsense_sources_resolve_to_the_ds5_target_unless_it_is_disabled() {
         let claim = ds5(0, 1).unwrap();
-        assert_eq!(claim.sony_product(), Some((SonyTarget::Ds4, true)));
+        assert_eq!(claim.sony_product(), Some(SonyTarget::Ds5));
         let ds4_claim = ds4(0, 1).unwrap();
-        assert_eq!(ds4_claim.sony_product(), Some((SonyTarget::Ds4, false)));
+        assert_eq!(ds4_claim.sony_product(), Some(SonyTarget::Ds4));
+
+        let forced = SonyCapability::default();
+        assert_eq!(forced.resolve(SonyTarget::Ds5), SonyTarget::Ds5);
+        let fallback = SonyCapability {
+            ds5_target_allowed: false,
+            ..SonyCapability::default()
+        };
+        assert_eq!(fallback.resolve(SonyTarget::Ds5), SonyTarget::Ds4);
     }
 }

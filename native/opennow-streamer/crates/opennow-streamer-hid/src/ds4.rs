@@ -70,11 +70,11 @@ fn scale_axis(raw: i16, extent: f32) -> u16 {
     value.clamp(0.0, extent) as u16
 }
 
-fn centered_axis(raw: i16) -> u8 {
+pub(crate) fn centered_axis(raw: i16) -> u8 {
     ((i32::from(raw) + 32768) >> 8) as u8
 }
 
-fn hat_byte(buttons: u16) -> u8 {
+pub(crate) fn hat_byte(buttons: u16) -> u8 {
     let x = i32::from(buttons & DS4_BUTTON_DPAD_RIGHT != 0)
         - i32::from(buttons & DS4_BUTTON_DPAD_LEFT != 0);
     let y = i32::from(buttons & DS4_BUTTON_DPAD_DOWN != 0)
@@ -124,7 +124,10 @@ impl Ds4ReportState {
         self.last_observed_at_us
     }
 
-    pub fn build(&mut self, snapshot: &SonySnapshot) -> [u8; DS4_REPORT_BYTES] {
+    pub(crate) fn advance(
+        &mut self,
+        snapshot: &SonySnapshot,
+    ) -> [SonyContact; crate::CONTACTS_PER_SOURCE] {
         self.observe(snapshot.observed_at_us);
         let next = snapshot.contacts;
         for (index, contact) in next.iter().enumerate() {
@@ -137,14 +140,12 @@ impl Ds4ReportState {
             self.seeded = true;
         }
         self.contacts = next;
+        next
+    }
 
-        let mut report = [0_u8; DS4_REPORT_BYTES];
-        report[0] = DS4_REPORT_ID;
-        report[1] = centered_axis(snapshot.left_stick_x);
-        report[2] = centered_axis(snapshot.left_stick_y);
-        report[3] = centered_axis(snapshot.right_stick_x);
-        report[4] = centered_axis(snapshot.right_stick_y);
-        report[5] = hat_byte(snapshot.buttons)
+    /// Face and shoulder bits are identical between the DS4 and DS5 reports.
+    pub(crate) fn shared_button_bytes(snapshot: &SonySnapshot) -> (u8, u8) {
+        let face = hat_byte(snapshot.buttons)
             | if snapshot.buttons & DS4_BUTTON_SQUARE != 0 {
                 0x10
             } else {
@@ -165,7 +166,7 @@ impl Ds4ReportState {
             } else {
                 0
             };
-        report[6] = if snapshot.buttons & DS4_BUTTON_L1 != 0 {
+        let shoulders = if snapshot.buttons & DS4_BUTTON_L1 != 0 {
             0x01
         } else {
             0
@@ -195,6 +196,21 @@ impl Ds4ReportState {
             } else {
                 0
             };
+        (face, shoulders)
+    }
+
+    pub fn build(&mut self, snapshot: &SonySnapshot) -> [u8; DS4_REPORT_BYTES] {
+        let next = self.advance(snapshot);
+        let (face, shoulders) = Self::shared_button_bytes(snapshot);
+
+        let mut report = [0_u8; DS4_REPORT_BYTES];
+        report[0] = DS4_REPORT_ID;
+        report[1] = centered_axis(snapshot.left_stick_x);
+        report[2] = centered_axis(snapshot.left_stick_y);
+        report[3] = centered_axis(snapshot.right_stick_x);
+        report[4] = centered_axis(snapshot.right_stick_y);
+        report[5] = face;
+        report[6] = shoulders;
         report[7] = if snapshot.touchpad_click { 0x02 } else { 0 };
         report[8] = snapshot.left_trigger;
         report[9] = snapshot.right_trigger;

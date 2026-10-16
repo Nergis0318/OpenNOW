@@ -1037,6 +1037,7 @@ pub(crate) fn sony_device_change_command(
 
 pub(crate) fn sony_report_command(
     low_id: u8,
+    interface: u8,
     report: &[u8; opennow_streamer_hid::ds4::DS4_REPORT_BYTES],
 ) -> Option<Vec<u8>> {
     sony_low_id_in_range(low_id)?;
@@ -1044,7 +1045,7 @@ pub(crate) fn sony_report_command(
     payload.push(HID_REPORT_MARKER);
     payload.extend_from_slice(&RI_TYPE_HID_REPORT.to_le_bytes());
     payload.push(low_id);
-    payload.push(opennow_streamer_hid::ds4::DS4_INTERFACE);
+    payload.push(interface);
     payload.push(0);
     payload.extend_from_slice(report);
     Some(control_command(COMMAND_GAMEPAD, &payload))
@@ -2070,7 +2071,8 @@ mod tests {
         let mut report = [0_u8; 64];
         report[0] = 0x01;
         report[35] = 0x01;
-        let command = sony_report_command(7, &report).unwrap();
+        let command =
+            sony_report_command(7, opennow_streamer_hid::ds4::DS4_INTERFACE, &report).unwrap();
         assert_eq!(&command[0..2], &0x020d_u16.to_le_bytes());
         assert_eq!(&command[2..4], &72_u16.to_le_bytes());
         assert_eq!(command[4], 0x22);
@@ -2085,9 +2087,15 @@ mod tests {
     #[test]
     fn sony_report_command_rejects_ids_outside_the_reserved_domain() {
         let report = [0_u8; 64];
-        assert!(sony_report_command(5, &report).is_none());
-        assert!(sony_report_command(10, &report).is_none());
-        assert!(sony_report_command(9, &report).is_some());
+        assert!(
+            sony_report_command(5, opennow_streamer_hid::ds4::DS4_INTERFACE, &report).is_none()
+        );
+        assert!(
+            sony_report_command(10, opennow_streamer_hid::ds4::DS4_INTERFACE, &report).is_none()
+        );
+        assert!(
+            sony_report_command(9, opennow_streamer_hid::ds4::DS4_INTERFACE, &report).is_some()
+        );
     }
 
     #[test]
@@ -2119,7 +2127,8 @@ mod tests {
     #[test]
     fn sony_report_route_uses_the_reliable_control_channel_not_the_partial_one() {
         let report = [0_u8; 64];
-        let command = sony_report_command(6, &report).unwrap();
+        let command =
+            sony_report_command(6, opennow_streamer_hid::ds4::DS4_INTERFACE, &report).unwrap();
         let encoded = NvstEncodedInput {
             route: NvstInputRoute::ControlReliable,
             bytes: command,

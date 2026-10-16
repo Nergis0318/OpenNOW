@@ -92,7 +92,7 @@ fn sony_teardown_commands() -> Vec<Vec<u8>> {
     let report = [0_u8; 64];
     let mut commands = Vec::new();
     for low_id in 6..=9 {
-        commands.push(sony_report_command(low_id, &report).unwrap());
+        commands.push(sony_report_command(low_id, opennow_streamer_hid::ds4::DS4_INTERFACE, &report).unwrap());
         commands.push(sony_device_change_command(SonyDeviceControl::Removal, low_id).unwrap());
     }
     commands
@@ -112,7 +112,7 @@ fn teardown_budget_covers_the_admitted_sony_bounds_with_full_framing() {
 fn actual_writers_reserve_teardown_capacity_under_a_normal_flood() {
     let (mut local, _remote, channels, _remote_channels) = connect_bundle_pair();
 
-    let report_command = sony_report_command(6, &[0_u8; 64]).unwrap();
+    let report_command = sony_report_command(6, opennow_streamer_hid::ds4::DS4_INTERFACE, &[0_u8; 64]).unwrap();
     let removal_command = sony_device_change_command(SonyDeviceControl::Removal, 6).unwrap();
 
     let mut normal_written = 0_usize;
@@ -348,7 +348,7 @@ fn repeated_capture_pause_cycles_send_one_neutral_report_per_source() {
         1
     ));
     assert_eq!(mask, 0b0001);
-    let neutral_report = sony_report_command(6, &[0_u8; 64]).unwrap();
+    let neutral_report = sony_report_command(6, opennow_streamer_hid::ds4::DS4_INTERFACE, &[0_u8; 64]).unwrap();
     let neutral_len = neutral_report.len();
     assert_eq!(neutral_len, 76);
     for cycle in 0..8_u64 {
@@ -422,7 +422,7 @@ fn sony_shutdown_flush_reaches_the_receiving_peer() {
         .unwrap();
     let mut snapshot = opennow_streamer_hid::SonySnapshot::neutral(0, 11, 1_000_000);
     snapshot.buttons = 0x1000;
-    let (_, prior) = session.build_report(&snapshot).unwrap();
+    let (_, _, prior) = session.build_report(&snapshot).unwrap();
     queue_hid_shutdown(&mut session, channels, &mut local);
     forward_rtc_outputs(
         &mut local,
@@ -453,7 +453,7 @@ fn sony_shutdown_flush_reaches_the_receiving_peer() {
         "the shutdown release must reach the receiving peer"
     );
     let removal = sony_device_change_command(SonyDeviceControl::Removal, 6).unwrap();
-    let release = sony_report_command(6, &[0_u8; 64]).unwrap();
+    let release = sony_report_command(6, opennow_streamer_hid::ds4::DS4_INTERFACE, &[0_u8; 64]).unwrap();
     assert!(
         payloads.iter().any(|payload| payload == &removal),
         "the receiving peer must observe the Sony removal"
