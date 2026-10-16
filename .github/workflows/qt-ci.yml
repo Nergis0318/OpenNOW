@@ -102,6 +102,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - label: linux-x64
+            os: ubuntu-24.04
+            qt-host: linux
+            qt-arch: linux_gcc_64
+            target-arch: x64
+            parallel: "4"
           - label: windows-x64
             os: windows-2025
             qt-host: windows
