@@ -1460,9 +1460,9 @@ fn build_create_body(app_id: &str, params: &Value, settings: &Value, device_id: 
         "bitDepth":bit_depth,
         "cloudGsync":cloud_gsync,
         "enabledL4S":setting_bool(settings, "enableL4S", false),
-        // Rich Sony HID classes the native chain can synthesize on the host.
-        // Matches the mask SonyCapability reads back from `ri.hidDeviceMask`.
-        "supportedHidDevices":5,
+        // Rich HID is gated by the server's `ri.hidDeviceMask` SDP answer, which it grants
+        // unconditionally; the official Bifrost request leaves this at 0 and hidDevices null.
+        "supportedHidDevices":0,
         "profile":0,
         "fallbackToLogicalResolution":false,
         "chromaFormat":chroma,
@@ -4177,7 +4177,7 @@ mod tests {
     }
 
     #[test]
-    fn create_body_advertises_the_rich_sony_hid_classes() {
+    fn create_body_leaves_the_hid_advertisement_to_the_server_device_mask() {
         let capabilities = json!({"protocolVersion":7,"nativeHdrSupported":true,"videoBackends":[{
             "backend":"d3d11","available":true,"codecs":[
                 {"codec":"h265","available":true,"colorQualities":["8bit_420","10bit_420"]}
@@ -4188,9 +4188,11 @@ mod tests {
                 .unwrap();
         let body = build_create_body("123", &json!({}), &settings, "device");
         let request = &body["sessionRequestData"];
+        // Rich HID is admitted by the server's `ri.hidDeviceMask` SDP answer, which it grants
+        // unconditionally; the official Bifrost request leaves these two fields empty.
         assert_eq!(
-            request["requestedStreamingFeatures"]["supportedHidDevices"], 5,
-            "the Sony HID chain needs the server to grant the rich device mask"
+            request["requestedStreamingFeatures"]["supportedHidDevices"],
+            0
         );
         assert!(request["requestedStreamingFeatures"]["hidDevices"].is_null());
         assert_eq!(request["remoteControllersBitmap"], 0);
