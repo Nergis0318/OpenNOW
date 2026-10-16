@@ -1026,6 +1026,9 @@ if(BUILD_TESTING)
         opennow-controllersources-tests
         opennow-controllermetadata-tests
     )
+    if(UNIX AND NOT APPLE)
+        list(APPEND OPENNOW_CI_UNIT_TEST_TARGETS opennow-sonychain-tests)
+    endif()
     if(WIN32)
         list(REMOVE_ITEM OPENNOW_CI_UNIT_TEST_TARGETS opennow-hdrcolor-tests)
         list(REMOVE_ITEM OPENNOW_CI_UNIT_TEST_TARGETS opennow-queueselector-tests)
