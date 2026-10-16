@@ -992,7 +992,7 @@ private slots:
         QVERIFY(pressSonyButton(second.joystick, SDL_GAMEPAD_BUTTON_SOUTH, true));
         QVERIFY2(chain.sawSonyReportMatching(
                      [](const QByteArray &report) {
-                         return (quint8(report.at(5)) & 0x20) != 0;
+                         return (quint8(report.at(8)) & 0x20) != 0;
                      }),
                  qUtf8Printable(chain.diagnostics()));
         QCOMPARE(quint8(chain.lastSonyReportFrame().at(9)), quint8(6));
@@ -1017,7 +1017,7 @@ private slots:
         QVERIFY(pressSonyButton(second.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false));
         QVERIFY2(chain.sawSonyReportMatching(
                      [](const QByteArray &report) {
-                         return (quint8(report.at(5)) & 0x20) == 0;
+                         return (quint8(report.at(8)) & 0x20) == 0;
                      },
                      kChainTimeoutMs, beforeRelease),
                  qUtf8Printable(chain.diagnostics()));

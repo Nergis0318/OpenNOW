@@ -6256,6 +6256,13 @@ fn pump_hid_pending(
     let mask = hid_session.rich_slot_mask();
     hid_runtime.set_session_admission(mask, inventory_epoch);
     if mask != *published_mask {
+        opennow_streamer_protocol::log::log_line(
+            "INFO",
+            "ri",
+            &format!(
+                "richSlotMask={mask:#x} (0 means every Sony source runs the ordinary Xbox path)"
+            ),
+        );
         let retirement = input_codec.set_rich_slot_mask(mask, timestamp_us);
         let mut failed = false;
         for message in &retirement {

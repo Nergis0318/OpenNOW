@@ -1038,6 +1038,11 @@ fn prepare_on_endpoint(
         .as_deref()
         .map(parse_hid_device_mask)
         .unwrap_or(0);
+    opennow_streamer_protocol::log::log_line(
+        "INFO",
+        "ri",
+        &format!("hidDeviceMask={hid_device_mask:#x}"),
+    );
     let microphone_available = negotiate_microphone(context, &describe.body);
 
     let mut setup_headers = common_headers.clone();
